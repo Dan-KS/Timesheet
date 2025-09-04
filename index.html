@@ -114,6 +114,25 @@
                     const weekStart = formatDate(currentWeek);
                     const data = await apiCall(`/timesheet/${selectedMember.MemberID}/${weekStart}`);
                     
+                    // Check for Admin Tasks entries specifically
+                    const adminTasksEntries = data.filter(entry => 
+                        entry.ProjectName && entry.ProjectName.toLowerCase().includes('admin')
+                    );
+                    
+                    let debugSummary = `Loaded ${data.length} total entries\n`;
+                    debugSummary += `Admin Tasks entries: ${adminTasksEntries.length}\n\n`;
+                    
+                    if (adminTasksEntries.length > 0) {
+                        debugSummary += "Admin Tasks details:\n";
+                        adminTasksEntries.forEach(entry => {
+                            const date = new Date(entry.EntryDate);
+                            const dayName = weekDays[(date.getDay() + 6) % 7];
+                            debugSummary += `- ${dayName}: ${entry.Hours || 0}h (${entry.EntryDate})\n`;
+                        });
+                    }
+                    
+                    console.log('DEBUG SUMMARY:', debugSummary);
+                    
                     const entries = {};
                     data.forEach(entry => {
                         const date = new Date(entry.EntryDate);
@@ -126,11 +145,11 @@
                     });
                     
                     setTimeEntries(entries);
-                    setHasUnsavedChanges(false); // Reset unsaved changes when loading fresh data
+                    setHasUnsavedChanges(false);
                 } catch (error) {
                     console.error('Failed to load timesheet data:', error);
                     setTimeEntries({});
-                    setHasUnsavedChanges(false); // Also reset on error
+                    setHasUnsavedChanges(false);
                 }
             };
 
@@ -140,6 +159,7 @@
                 setSaving(true);
                 let successCount = 0;
                 let errorCount = 0;
+                const debugInfo = [];
 
                 try {
                     // Save all current entries
@@ -150,21 +170,42 @@
                             const entryDate = new Date(currentWeek);
                             entryDate.setDate(currentWeek.getDate() + dayIndex);
 
+                            const project = projects.find(p => p.id === projectId);
+                            const dayName = weekDays[dayIndex];
+
+                            const saveData = {
+                                memberId: selectedMember.MemberID,
+                                projectId: projectId,
+                                entryDate: formatDate(entryDate),
+                                weekStarting: formatDate(currentWeek),
+                                hours: entry.hours || null,
+                                taskDescription: entry.task || null
+                            };
+
+                            debugInfo.push({
+                                key,
+                                projectName: project?.name || 'Unknown',
+                                dayName,
+                                dayIndex,
+                                hours: entry.hours,
+                                task: entry.task,
+                                saveData
+                            });
+
                             try {
                                 await apiCall('/timesheet', {
                                     method: 'POST',
-                                    body: JSON.stringify({
-                                        memberId: selectedMember.MemberID,
-                                        projectId: projectId,
-                                        entryDate: formatDate(entryDate),
-                                        weekStarting: formatDate(currentWeek),
-                                        hours: entry.hours || null,
-                                        taskDescription: entry.task || null
-                                    })
+                                    body: JSON.stringify(saveData)
                                 });
                                 successCount++;
                             } catch (error) {
-                                console.error('Failed to save entry:', error);
+                                console.error('Failed to save entry:', {
+                                    key,
+                                    projectName: project?.name,
+                                    dayName,
+                                    error: error.message,
+                                    saveData
+                                });
                                 errorCount++;
                             }
                         }
@@ -175,10 +216,12 @@
                         setError(null);
                         alert(`Successfully saved ${successCount} entries!`);
                     } else {
-                        setError(`Saved ${successCount} entries, but ${errorCount} failed. Please try again.`);
+                        console.log('Debug Info for all save attempts:', debugInfo);
+                        setError(`Saved ${successCount} entries, but ${errorCount} failed. Check browser console for details.`);
                     }
                 } catch (error) {
-                    setError('Failed to save timesheet. Please try again.');
+                    console.log('Debug Info for all save attempts:', debugInfo);
+                    setError('Failed to save timesheet. Check browser console for details.');
                 } finally {
                     setSaving(false);
                 }
