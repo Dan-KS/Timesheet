@@ -114,35 +114,47 @@
                     const weekStart = formatDate(currentWeek);
                     const data = await apiCall(`/timesheet/${selectedMember.MemberID}/${weekStart}`);
                     
-                    // Check for Admin Tasks entries specifically
-                    const adminTasksEntries = data.filter(entry => 
-                        entry.ProjectName && entry.ProjectName.toLowerCase().includes('admin')
-                    );
-                    
-                    let debugSummary = `Loaded ${data.length} total entries\n`;
-                    debugSummary += `Admin Tasks entries: ${adminTasksEntries.length}\n\n`;
-                    
-                    if (adminTasksEntries.length > 0) {
-                        debugSummary += "Admin Tasks details:\n";
-                        adminTasksEntries.forEach(entry => {
-                            const date = new Date(entry.EntryDate);
-                            const dayName = weekDays[(date.getDay() + 6) % 7];
-                            debugSummary += `- ${dayName}: ${entry.Hours || 0}h (${entry.EntryDate})\n`;
-                        });
-                    }
-                    
-                    console.log('DEBUG SUMMARY:', debugSummary);
-                    
                     const entries = {};
+                    const debugEntries = [];
+                    
                     data.forEach(entry => {
                         const date = new Date(entry.EntryDate);
                         const dayIndex = (date.getDay() + 6) % 7;
                         const key = `${entry.ProjectID}-${dayIndex}`;
+                        
+                        // Store for debugging
+                        debugEntries.push({
+                            projectName: entry.ProjectName,
+                            projectId: entry.ProjectID,
+                            entryDate: entry.EntryDate,
+                            dayOfWeek: date.getDay(),
+                            dayIndex: dayIndex,
+                            dayName: weekDays[dayIndex],
+                            hours: entry.Hours,
+                            key: key
+                        });
+                        
                         entries[key] = {
                             hours: entry.Hours || '',
                             task: entry.TaskDescription || ''
                         };
                     });
+                    
+                    // Show debug info for Admin entries specifically
+                    const adminEntries = debugEntries.filter(e => 
+                        e.projectName && e.projectName.toLowerCase().includes('admin')
+                    );
+                    
+                    if (adminEntries.length > 0) {
+                        console.log('=== ADMIN TASKS DEBUG ===');
+                        console.log('Week start:', weekStart);
+                        adminEntries.forEach(entry => {
+                            console.log(`${entry.dayName} (${entry.entryDate}): ${entry.hours}h`);
+                            console.log(`  - Key: ${entry.key}`);
+                            console.log(`  - Will display: ${entries[entry.key]?.hours || 'MISSING'}`);
+                        });
+                        console.log('=========================');
+                    }
                     
                     setTimeEntries(entries);
                     setHasUnsavedChanges(false);
