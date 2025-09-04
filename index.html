@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Team Timesheet System</title>
+    <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+    <script crossorigin src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.5/babel.min.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        // Your live API URL - connected to Azure SQL Database
+        const API_BASE_URL = 'https://timesheet-api-dpcxh5gca6bthgeb.uksouth-01.azurewebsites.net/api';
+
+        // Simple Lucide icon components
+        const Plus = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v14m7-7H5" /></svg>;
+        const Settings = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><circle cx={12} cy={12} r={3} /></svg>;
+        const Download = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4m7-10l4 4m0 0l4-4m-4 4V3" /></svg>;
+        const RefreshCw = ({ className }) => <svg className={className || "w-4 h-4"} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>;
+        const AlertCircle = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx={12} cy={12} r={10} /><line x1={12} y1={8} x2={12} y2={12} /><line x1={12} y1={16} x2="12.01" y2={16} /></svg>;
+
+        const TimesheetSystem = () => {
+            const [currentWeek, setCurrentWeek] = React.useState(getWeekStart(new Date()));
+            const [projects, setProjects] = React.useState([]);
+            const [members, setMembers] = React.useState([]);
+            const [selectedMember, setSelectedMember] = React.useState(null);
+            const [timeEntries, setTimeEntries] = React.useState({});
+            const [showProjectManager, setShowProjectManager] = React.useState(false);
+            const [loading, setLoading] = React.useState(true);
+            const [saving, setSaving] = React.useState(false);
+            const [lastSaved, setLastSaved] = React.useState(null);
+            const [error, setError] = React.useState(null);
+
+            const weekDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+
+            function getWeekStart(date) {
+                const d = new Date(date);
+                const day = d.getDay();
+                const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+                return new Date(d.setDate(diff));
+            }
+
+            function formatDate(date) {
+                return date.toISOString().split('T')[0];
+            }
+
+            function getWeekDates() {
+                return weekDays.map((_, index) => {
+                    const date = new Date(currentWeek);
+                    date.setDate(currentWeek.getDate() + index);
+                    return date;
+                });
+            }
+
+            // API calls with error handling
+            const apiCall = async (endpoint, options = {}) => {
+                try {
+                    setError(null);
+                    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+                        headers: {
+                            'Content-Type': 'application/json',
+                            ...options.headers,
+                        },
+                        ...options,
+                    });
+                    
+                    if (!response.ok) {
+                        throw new Error(`API Error: ${response.status}`);
+                    }
+                    
+                    return await response.json();
+                } catch (error) {
+                    console.error(`API call failed: ${endpoint}`, error);
+                    setError(`Connection failed: ${error.message}`);
+                    throw error;
+                }
+            };
+
+            const loadMembers = async () => {
+                try {
+                    const data = await apiCall('/members');
+                    setMembers(data);
+                    if (data.length > 0 && !selectedMember) {
+                        setSelectedMember(data[0]);
+                    }
+                } catch (error) {
+                    console.error('Failed to load members:', error);
+                }
+            };
+
+            const loadProjects = async () => {
+                try {
+                    const data = await apiCall('/projects');
+                    setProjects(data.map(p => ({
+                        id: p.ProjectID,
+                        name: p.ProjectName,
+                        code: p.ProjectCode,
+                        billable: p.Billable
+                    })));
+                } catch (error) {
+                    console.error('Failed to load projects:', error);
+                }
+            };
+
+            const loadTimesheetData = async () => {
+                if (!selectedMember) return;
+
+                try {
+                    const weekStart = formatDate(currentWeek);
+                    const data = await apiCall(`/timesheet/${selectedMember.MemberID}/${weekStart}`);
+                    
+                    const entries = {};
+                    data.forEach(entry => {
+                        const date = new Date(entry.EntryDate);
+                        const dayIndex = (date.getDay() + 6) % 7;
+                        const key = `${entry.ProjectID}-${dayIndex}`;
+                        entries[key] = {
+                            hours: entry.Hours || '',
+                            task: entry.TaskDescription || ''
+                        };
+                    });
+                    
+                    setTimeEntries(entries);
+                } catch (error) {
+                    console.error('Failed to load timesheet data:', error);
+                    setTimeEntries({});
+                }
+            };
+
+            const saveTimeEntry = async (projectId, dayIndex, field, value) => {
+                if (!selectedMember) return;
+
+                try {
+                    setSaving(true);
+                    const entryDate = new Date(currentWeek);
+                    entryDate.setDate(currentWeek.getDate() + dayIndex);
+
+                    const key = `${projectId}-${dayIndex}`;
+                    const currentEntry = timeEntries[key] || {};
+                    
+                    await apiCall('/timesheet', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            memberId: selectedMember.MemberID,
+                            projectId: projectId,
+                            entryDate: formatDate(entryDate),
+                            weekStarting: formatDate(currentWeek),
+                            hours: field === 'hours' ? (value || null) : (currentEntry.hours || null),
+                            taskDescription: field === 'task' ? (value || null) : (currentEntry.task || null)
+                        })
+                    });
+
+                    setLastSaved(new Date());
+                    setError(null);
+                } catch (error) {
+                    setError('Failed to save. Please try again.');
+                } finally {
+                    setSaving(false);
+                }
+            };
+
+            const updateTimeEntry = (projectId, dayIndex, field, value) => {
+                const key = `${projectId}-${dayIndex}`;
+                setTimeEntries(prev => ({
+                    ...prev,
+                    [key]: {
+                        ...prev[key],
+                        [field]: value
+                    }
+                }));
+
+                clearTimeout(window.saveTimeout);
+                window.saveTimeout = setTimeout(() => {
+                    saveTimeEntry(projectId, dayIndex, field, value);
+                }, 1000);
+            };
+
+            const getTimeEntry = (projectId, dayIndex, field = 'hours') => {
+                const key = `${projectId}-${dayIndex}`;
+                return timeEntries[key]?.[field] || '';
+            };
+
+            const getDayTotal = (dayIndex) => {
+                return projects.reduce((total, project) => {
+                    const hours = parseFloat(getTimeEntry(project.id, dayIndex, 'hours')) || 0;
+                    return total + hours;
+                }, 0);
+            };
+
+            const getProjectTotal = (projectId) => {
+                return weekDays.reduce((total, _, dayIndex) => {
+                    const hours = parseFloat(getTimeEntry(projectId, dayIndex, 'hours')) || 0;
+                    return total + hours;
+                }, 0);
+            };
+
+            const getWeekTotal = () => {
+                return projects.reduce((total, project) => total + getProjectTotal(project.id), 0);
+            };
+
+            const copyFromLastWeek = async () => {
+                if (!selectedMember) return;
+
+                const lastWeek = new Date(currentWeek);
+                lastWeek.setDate(currentWeek.getDate() - 7);
+
+                try {
+                    const weekStart = formatDate(lastWeek);
+                    const data = await apiCall(`/timesheet/${selectedMember.MemberID}/${weekStart}`);
+                    
+                    let copiedEntries = 0;
+                    
+                    for (const entry of data) {
+                        if (entry.Hours || entry.TaskDescription) {
+                            const date = new Date(entry.EntryDate);
+                            const dayIndex = (date.getDay() + 6) % 7;
+                            const key = `${entry.ProjectID}-${dayIndex}`;
+                            
+                            if (!timeEntries[key] || (!timeEntries[key].hours && !timeEntries[key].task)) {
+                                updateTimeEntry(entry.ProjectID, dayIndex, 'hours', entry.Hours || '');
+                                updateTimeEntry(entry.ProjectID, dayIndex, 'task', entry.TaskDescription || '');
+                                copiedEntries++;
+                            }
+                        }
+                    }
+                    
+                    if (copiedEntries > 0) {
+                        alert(`Copied ${copiedEntries} entries from last week!`);
+                    } else {
+                        alert('No data found from last week, or current week already has data.');
+                    }
+                } catch (error) {
+                    alert('Failed to copy from last week. Please try again.');
+                }
+            };
+
+            const exportData = async () => {
+                if (!selectedMember) return;
+
+                try {
+                    const weekStart = formatDate(currentWeek);
+                    const weekEnd = formatDate(new Date(currentWeek.getTime() + 6 * 24 * 60 * 60 * 1000));
+                    
+                    const exportData = {
+                        week: `${weekStart} to ${weekEnd}`,
+                        member: selectedMember.Name,
+                        entries: projects.map(project => ({
+                            project: project.name,
+                            code: project.code,
+                            billable: project.billable,
+                            days: weekDays.map((day, index) => ({
+                                day,
+                                date: formatDate(getWeekDates()[index]),
+                                hours: parseFloat(getTimeEntry(project.id, index, 'hours')) || 0,
+                                task: getTimeEntry(project.id, index, 'task') || ''
+                            })),
+                            total: getProjectTotal(project.id)
+                        })),
+                        weekTotal: getWeekTotal()
+                    };
+
+                    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `timesheet_${selectedMember.Name.replace(' ', '_')}_${weekStart}.json`;
+                    a.click();
+                    URL.revokeObjectURL(url);
+                } catch (error) {
+                    alert('Failed to export data. Please try again.');
+                }
+            };
+
+            const refreshData = async () => {
+                setLoading(true);
+                try {
+                    await Promise.all([loadMembers(), loadProjects()]);
+                } finally {
+                    setLoading(false);
+                }
+            };
+
+            React.useEffect(() => {
+                const initializeData = async () => {
+                    setLoading(true);
+                    try {
+                        await Promise.all([loadMembers(), loadProjects()]);
+                    } finally {
+                        setLoading(false);
+                    }
+                };
+
+                initializeData();
+            }, []);
+
+            React.useEffect(() => {
+                if (selectedMember && !loading) {
+                    loadTimesheetData();
+                }
+            }, [selectedMember, currentWeek, loading]);
+
+            const weekDates = getWeekDates();
+
+            if (loading) {
+                return (
+                    <div className="max-w-7xl mx-auto p-6 bg-white">
+                        <div className="flex items-center justify-center py-12">
+                            <RefreshCw className="animate-spin mr-2 w-6 h-6" />
+                            <span>Loading timesheet data...</span>
+                        </div>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="max-w-7xl mx-auto p-6 bg-white">
+                    {error && (
+                        <div className="mb-4 p-4 bg-red-100 border border-red-400 text-red-700 rounded flex items-center">
+                            <AlertCircle />
+                            <span className="ml-2">{error}</span>
+                            <button 
+                                onClick={() => setError(null)}
+                                className="ml-auto text-red-500 hover:text-red-700"
+                            >
+                                ×
+                            </button>
+                        </div>
+                    )}
+
+                    <div className="mb-6">
+                        <div className="flex items-center justify-between mb-4">
+                            <h1 className="text-3xl font-bold text-gray-800">Team Timesheet</h1>
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={refreshData}
+                                    className="flex items-center gap-2 px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700"
+                                >
+                                    <RefreshCw className="w-4 h-4" />
+                                    Refresh
+                                </button>
+                                <button
+                                    onClick={() => setShowProjectManager(!showProjectManager)}
+                                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                                >
+                                    <Settings />
+                                    Projects
+                                </button>
+                                <button
+                                    onClick={exportData}
+                                    className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700"
+                                >
+                                    <Download />
+                                    Export
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="flex items-center gap-4 mb-4">
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Team Member</label>
+                                <select
+                                    value={selectedMember?.MemberID || ''}
+                                    onChange={(e) => {
+                                        const member = members.find(m => m.MemberID === parseInt(e.target.value));
+                                        setSelectedMember(member);
+                                    }}
+                                    className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                >
+                                    {members.map(member => (
+                                        <option key={member.MemberID} value={member.MemberID}>{member.Name}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            
+                            <div>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">Week Starting</label>
+                                <input
+                                    type="date"
+                                    value={formatDate(currentWeek)}
+                                    onChange={(e) => setCurrentWeek(new Date(e.target.value))}
+                                    className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                />
+                            </div>
+
+                            {saving && (
+                                <div className="flex items-center text-sm text-gray-600">
+                                    <RefreshCw className="animate-spin mr-1 w-4 h-4" />
+                                    Saving...
+                                </div>
+                            )}
+
+                            {lastSaved && !saving && (
+                                <div className="text-sm text-green-600">
+                                    Saved at {lastSaved.toLocaleTimeString()}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {showProjectManager && (
+                        <div className="mb-6 p-4 bg-gray-50 rounded-lg border">
+                            <h2 className="text-xl font-semibold mb-4">Current Projects</h2>
+                            <div className="space-y-2">
+                                {projects.map(project => (
+                                    <div key={project.id} className="flex items-center gap-3 p-3 bg-white rounded border">
+                                        <span className="flex-1 font-medium">{project.name}</span>
+                                        <span className="w-20 text-sm text-gray-600">{project.code}</span>
+                                        <span className={`inline-block w-3 h-3 rounded-full ${project.billable ? 'bg-green-500' : 'bg-gray-400'}`}></span>
+                                        <span className="text-sm">{project.billable ? 'Billable' : 'Non-billable'}</span>
+                                    </div>
+                                ))}
+                            </div>
+                            <p className="text-sm text-gray-600 mt-2">Contact your administrator to add or modify projects.</p>
+                        </div>
+                    )}
+
+                    <div className="overflow-x-auto">
+                        <table className="w-full border-collapse bg-white shadow-sm">
+                            <thead>
+                                <tr className="bg-gray-50">
+                                    <th className="border border-gray-200 p-3 text-left font-semibold">Project</th>
+                                    <th className="border border-gray-200 p-3 text-left font-semibold">Code</th>
+                                    <th className="border border-gray-200 p-1 text-center font-semibold">Bill</th>
+                                    {weekDates.map((date, index) => (
+                                        <th key={index} className="border border-gray-200 p-3 text-center font-semibold min-w-32">
+                                            <div>{weekDays[index]}</div>
+                                            <div className="text-sm font-normal text-gray-600">
+                                                {date.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit' })}
+                                            </div>
+                                        </th>
+                                    ))}
+                                    <th className="border border-gray-200 p-3 text-center font-semibold">Total</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {projects.map(project => (
+                                    <React.Fragment key={project.id}>
+                                        <tr>
+                                            <td className="border border-gray-200 p-3 font-medium">{project.name}</td>
+                                            <td className="border border-gray-200 p-3 text-sm text-gray-600">{project.code}</td>
+                                            <td className="border border-gray-200 p-1 text-center">
+                                                <span className={`inline-block w-3 h-3 rounded-full ${project.billable ? 'bg-green-500' : 'bg-gray-400'}`}></span>
+                                            </td>
+                                            {weekDays.map((_, dayIndex) => (
+                                                <td key={dayIndex} className="border border-gray-200 p-1">
+                                                    <input
+                                                        type="number"
+                                                        step="0.5"
+                                                        min="0"
+                                                        max="24"
+                                                        value={getTimeEntry(project.id, dayIndex, 'hours')}
+                                                        onChange={(e) => updateTimeEntry(project.id, dayIndex, 'hours', e.target.value)}
+                                                        className="w-full p-2 text-center border-0 focus:bg-blue-50 focus:outline-none"
+                                                        placeholder="0"
+                                                    />
+                                                </td>
+                                            ))}
+                                            <td className="border border-gray-200 p-3 text-center font-semibold">
+                                                {getProjectTotal(project.id).toFixed(1)}h
+                                            </td>
+                                        </tr>
+                                        <tr>
+                                            <td className="border border-gray-200 p-1 text-sm text-gray-600">Tasks</td>
+                                            <td className="border border-gray-200"></td>
+                                            <td className="border border-gray-200"></td>
+                                            {weekDays.map((_, dayIndex) => (
+                                                <td key={dayIndex} className="border border-gray-200 p-1">
+                                                    <input
+                                                        type="text"
+                                                        value={getTimeEntry(project.id, dayIndex, 'task')}
+                                                        onChange={(e) => updateTimeEntry(project.id, dayIndex, 'task', e.target.value)}
+                                                        className="w-full p-1 text-xs border-0 focus:bg-yellow-50 focus:outline-none"
+                                                        placeholder="Task description..."
+                                                    />
+                                                </td>
+                                            ))}
+                                            <td className="border border-gray-200"></td>
+                                        </tr>
+                                    </React.Fragment>
+                                ))}
+                            </tbody>
+                            <tfoot>
+                                <tr className="bg-gray-50 font-semibold">
+                                    <td className="border border-gray-200 p-3">Daily Totals</td>
+                                    <td className="border border-gray-200"></td>
+                                    <td className="border border-gray-200"></td>
+                                    {weekDays.map((_, dayIndex) => (
+                                        <td key={dayIndex} className="border border-gray-200 p-3 text-center">
+                                            {getDayTotal(dayIndex).toFixed(1)}h
+                                        </td>
+                                    ))}
+                                    <td className="border border-gray-200 p-3 text-center bg-blue-50">
+                                        {getWeekTotal().toFixed(1)}h
+                                    </td>
+                                </tr>
+                            </tfoot>
+                        </table>
+                    </div>
+                    
+                    <div className="mt-4 text-sm text-gray-600 flex items-center justify-between">
+                        <div>
+                            <p>• Enter hours in 0.5 increments • Green dots indicate billable projects • Data saves automatically to Azure SQL Database</p>
+                            <p className="text-xs text-green-600 mt-1">✅ Connected to live database</p>
+                        </div>
+                        <button
+                            onClick={copyFromLastWeek}
+                            className="text-blue-600 hover:text-blue-800 hover:underline cursor-pointer"
+                        >
+                            Copy from last week
+                        </button>
+                    </div>
+                </div>
+            );
+        };
+
+        ReactDOM.render(<TimesheetSystem />, document.getElementById('root'));
+    </script>
+</body>
+</html>
