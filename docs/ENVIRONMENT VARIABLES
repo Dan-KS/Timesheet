@@ -1,0 +1,10 @@
+# ==============================================
+# 4. ENVIRONMENT VARIABLES (save as: .env.example)
+# ==============================================
+
+# Copy this file to .env and fill in your actual values
+AZURE_SQL_SERVER=your-server.database.windows.net
+AZURE_SQL_DATABASE=timesheet-db
+AZURE_SQL_USER=sqladmin
+AZURE_SQL_PASSWORD=your-password
+PORT=8000
