@@ -20,6 +20,7 @@
         const Plus = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v14m7-7H5" /></svg>;
         const Settings = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><circle cx={12} cy={12} r={3} /></svg>;
         const Download = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4m7-10l4 4m0 0l4-4m-4 4V3" /></svg>;
+        const Save = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z" /><polyline points="17,21 17,13 7,13 7,21" /><polyline points="7,3 7,8 15,8" /></svg>;
         const RefreshCw = ({ className }) => <svg className={className || "w-4 h-4"} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>;
         const AlertCircle = () => <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx={12} cy={12} r={10} /><line x1={12} y1={8} x2={12} y2={12} /><line x1={12} y1={16} x2="12.01" y2={16} /></svg>;
 
@@ -32,7 +33,7 @@
             const [showProjectManager, setShowProjectManager] = React.useState(false);
             const [loading, setLoading] = React.useState(true);
             const [saving, setSaving] = React.useState(false);
-            const [lastSaved, setLastSaved] = React.useState(null);
+            const [hasUnsavedChanges, setHasUnsavedChanges] = React.useState(false);
             const [error, setError] = React.useState(null);
 
             const weekDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
@@ -125,39 +126,59 @@
                     });
                     
                     setTimeEntries(entries);
+                    setHasUnsavedChanges(false); // Reset unsaved changes when loading fresh data
                 } catch (error) {
                     console.error('Failed to load timesheet data:', error);
                     setTimeEntries({});
+                    setHasUnsavedChanges(false); // Also reset on error
                 }
             };
 
-            const saveTimeEntry = async (projectId, dayIndex, field, value) => {
-                if (!selectedMember) return;
+            const saveAllChanges = async () => {
+                if (!selectedMember || !hasUnsavedChanges) return;
+
+                setSaving(true);
+                let successCount = 0;
+                let errorCount = 0;
 
                 try {
-                    setSaving(true);
-                    const entryDate = new Date(currentWeek);
-                    entryDate.setDate(currentWeek.getDate() + dayIndex);
+                    // Save all current entries
+                    for (const [key, entry] of Object.entries(timeEntries)) {
+                        if (entry.hours || entry.task) {
+                            const [projectId, dayIndex] = key.split('-').map(Number);
+                            
+                            const entryDate = new Date(currentWeek);
+                            entryDate.setDate(currentWeek.getDate() + dayIndex);
 
-                    const key = `${projectId}-${dayIndex}`;
-                    const currentEntry = timeEntries[key] || {};
-                    
-                    await apiCall('/timesheet', {
-                        method: 'POST',
-                        body: JSON.stringify({
-                            memberId: selectedMember.MemberID,
-                            projectId: projectId,
-                            entryDate: formatDate(entryDate),
-                            weekStarting: formatDate(currentWeek),
-                            hours: field === 'hours' ? (value || null) : (currentEntry.hours || null),
-                            taskDescription: field === 'task' ? (value || null) : (currentEntry.task || null)
-                        })
-                    });
+                            try {
+                                await apiCall('/timesheet', {
+                                    method: 'POST',
+                                    body: JSON.stringify({
+                                        memberId: selectedMember.MemberID,
+                                        projectId: projectId,
+                                        entryDate: formatDate(entryDate),
+                                        weekStarting: formatDate(currentWeek),
+                                        hours: entry.hours || null,
+                                        taskDescription: entry.task || null
+                                    })
+                                });
+                                successCount++;
+                            } catch (error) {
+                                console.error('Failed to save entry:', error);
+                                errorCount++;
+                            }
+                        }
+                    }
 
-                    setLastSaved(new Date());
-                    setError(null);
+                    if (errorCount === 0) {
+                        setHasUnsavedChanges(false);
+                        setError(null);
+                        alert(`Successfully saved ${successCount} entries!`);
+                    } else {
+                        setError(`Saved ${successCount} entries, but ${errorCount} failed. Please try again.`);
+                    }
                 } catch (error) {
-                    setError('Failed to save. Please try again.');
+                    setError('Failed to save timesheet. Please try again.');
                 } finally {
                     setSaving(false);
                 }
@@ -172,11 +193,8 @@
                         [field]: value
                     }
                 }));
-
-                clearTimeout(window.saveTimeout);
-                window.saveTimeout = setTimeout(() => {
-                    saveTimeEntry(projectId, dayIndex, field, value);
-                }, 1000);
+                
+                setHasUnsavedChanges(true);
             };
 
             const getTimeEntry = (projectId, dayIndex, field = 'hours') => {
@@ -213,6 +231,7 @@
                     const data = await apiCall(`/timesheet/${selectedMember.MemberID}/${weekStart}`);
                     
                     let copiedEntries = 0;
+                    const newEntries = { ...timeEntries };
                     
                     for (const entry of data) {
                         if (entry.Hours || entry.TaskDescription) {
@@ -220,16 +239,22 @@
                             const dayIndex = (date.getDay() + 6) % 7;
                             const key = `${entry.ProjectID}-${dayIndex}`;
                             
-                            if (!timeEntries[key] || (!timeEntries[key].hours && !timeEntries[key].task)) {
-                                updateTimeEntry(entry.ProjectID, dayIndex, 'hours', entry.Hours || '');
-                                updateTimeEntry(entry.ProjectID, dayIndex, 'task', entry.TaskDescription || '');
+                            // Only copy if current week doesn't have data
+                            if (!newEntries[key] || (!newEntries[key].hours && !newEntries[key].task)) {
+                                newEntries[key] = {
+                                    ...newEntries[key],
+                                    hours: entry.Hours || '',
+                                    task: entry.TaskDescription || ''
+                                };
                                 copiedEntries++;
                             }
                         }
                     }
                     
                     if (copiedEntries > 0) {
-                        alert(`Copied ${copiedEntries} entries from last week!`);
+                        setTimeEntries(newEntries);
+                        setHasUnsavedChanges(true);
+                        alert(`Copied ${copiedEntries} entries from last week! Remember to click Save to store the data.`);
                     } else {
                         alert('No data found from last week, or current week already has data.');
                     }
@@ -284,6 +309,31 @@
                 }
             };
 
+            // Handle unsaved changes warning when switching member/week
+            const handleMemberChange = (newMemberId) => {
+                if (hasUnsavedChanges) {
+                    const confirmSwitch = window.confirm(
+                        'You have unsaved changes. Do you want to continue without saving?'
+                    );
+                    if (!confirmSwitch) return;
+                }
+                const member = members.find(m => m.MemberID === parseInt(newMemberId));
+                setSelectedMember(member);
+                setHasUnsavedChanges(false);
+            };
+
+            const handleWeekChange = (newDate) => {
+                if (hasUnsavedChanges) {
+                    const confirmSwitch = window.confirm(
+                        'You have unsaved changes. Do you want to continue without saving?'
+                    );
+                    if (!confirmSwitch) return;
+                }
+                setCurrentWeek(new Date(newDate));
+                setHasUnsavedChanges(false);
+            };
+
+            // Load initial data
             React.useEffect(() => {
                 const initializeData = async () => {
                     setLoading(true);
@@ -297,11 +347,26 @@
                 initializeData();
             }, []);
 
+            // Load timesheet data when member or week changes
             React.useEffect(() => {
                 if (selectedMember && !loading) {
                     loadTimesheetData();
                 }
             }, [selectedMember, currentWeek, loading]);
+
+            // Warning when leaving page with unsaved changes
+            React.useEffect(() => {
+                const handleBeforeUnload = (e) => {
+                    if (hasUnsavedChanges) {
+                        e.preventDefault();
+                        e.returnValue = 'You have unsaved changes. Are you sure you want to leave?';
+                        return e.returnValue;
+                    }
+                };
+
+                window.addEventListener('beforeunload', handleBeforeUnload);
+                return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+            }, [hasUnsavedChanges]);
 
             const weekDates = getWeekDates();
 
@@ -335,6 +400,18 @@
                         <div className="flex items-center justify-between mb-4">
                             <h1 className="text-3xl font-bold text-gray-800">Team Timesheet</h1>
                             <div className="flex gap-2">
+                                <button
+                                    onClick={saveAllChanges}
+                                    disabled={!hasUnsavedChanges || saving}
+                                    className={`flex items-center gap-2 px-4 py-2 text-white rounded ${
+                                        hasUnsavedChanges && !saving 
+                                            ? 'bg-green-600 hover:bg-green-700' 
+                                            : 'bg-gray-400 cursor-not-allowed'
+                                    }`}
+                                >
+                                    <Save />
+                                    {saving ? 'Saving...' : 'Save Timesheet'}
+                                </button>
                                 <button
                                     onClick={refreshData}
                                     className="flex items-center gap-2 px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700"
@@ -383,16 +460,17 @@
                                 />
                             </div>
 
-                            {saving && (
-                                <div className="flex items-center text-sm text-gray-600">
-                                    <RefreshCw className="animate-spin mr-1 w-4 h-4" />
-                                    Saving...
+                            {hasUnsavedChanges && (
+                                <div className="flex items-center text-orange-600 bg-orange-50 px-3 py-2 rounded border border-orange-200">
+                                    <AlertCircle />
+                                    <span className="ml-2 font-medium">You have unsaved changes</span>
                                 </div>
                             )}
 
-                            {lastSaved && !saving && (
-                                <div className="text-sm text-green-600">
-                                    Saved at {lastSaved.toLocaleTimeString()}
+                            {saving && (
+                                <div className="flex items-center text-sm text-gray-600">
+                                    <RefreshCw className="animate-spin mr-1 w-4 h-4" />
+                                    Saving to database...
                                 </div>
                             )}
                         </div>
