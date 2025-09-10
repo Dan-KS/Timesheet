@@ -38,6 +38,8 @@ async function getConnection() {
     return await poolPromise;
 }
 
+// EXISTING ENDPOINTS (keep these unchanged)
+
 // Get all members
 app.get('/api/members', async (req, res) => {
     try {
@@ -132,6 +134,168 @@ app.post('/api/timesheet', async (req, res) => {
     } catch (err) {
         console.error('Error saving timesheet entry:', err);
         res.status(500).json({ error: 'Failed to save timesheet entry' });
+    }
+});
+
+// NEW ENDPOINTS FOR TEAM AND PROJECT MANAGEMENT
+
+// Add new team member
+app.post('/api/members', async (req, res) => {
+    try {
+        const { name, email } = req.body;
+        
+        if (!name) {
+            return res.status(400).json({ error: 'Name is required' });
+        }
+        
+        const pool = await getConnection();
+        
+        // Check if member already exists
+        const existingMember = await pool.request()
+            .input('name', sql.NVarChar(100), name)
+            .query('SELECT MemberID FROM Members WHERE Name = @name');
+            
+        if (existingMember.recordset.length > 0) {
+            return res.status(400).json({ error: 'Team member with this name already exists' });
+        }
+        
+        // Add new member
+        await pool.request()
+            .input('name', sql.NVarChar(100), name)
+            .input('email', sql.NVarChar(255), email || null)
+            .query(`INSERT INTO Members (Name, Email, Active) 
+                    VALUES (@name, @email, 1)`);
+        
+        res.json({ success: true, message: 'Team member added successfully' });
+    } catch (err) {
+        console.error('Error adding team member:', err);
+        res.status(500).json({ error: 'Failed to add team member' });
+    }
+});
+
+// Update team member
+app.put('/api/members/:memberId', async (req, res) => {
+    try {
+        const { memberId } = req.params;
+        const { name, email } = req.body;
+        const pool = await getConnection();
+        
+        // Build dynamic update query based on provided fields
+        let updateFields = [];
+        let inputs = [];
+        
+        if (name !== undefined) {
+            updateFields.push('Name = @name');
+            inputs.push({ name: 'name', type: sql.NVarChar(100), value: name });
+        }
+        
+        if (email !== undefined) {
+            updateFields.push('Email = @email');
+            inputs.push({ name: 'email', type: sql.NVarChar(255), value: email });
+        }
+        
+        if (updateFields.length === 0) {
+            return res.status(400).json({ error: 'No fields to update' });
+        }
+        
+        const request = pool.request();
+        request.input('memberId', sql.Int, memberId);
+        
+        inputs.forEach(input => {
+            request.input(input.name, input.type, input.value);
+        });
+        
+        await request.query(`UPDATE Members 
+                            SET ${updateFields.join(', ')} 
+                            WHERE MemberID = @memberId`);
+        
+        res.json({ success: true, message: 'Team member updated successfully' });
+    } catch (err) {
+        console.error('Error updating team member:', err);
+        res.status(500).json({ error: 'Failed to update team member' });
+    }
+});
+
+// Add new project
+app.post('/api/projects', async (req, res) => {
+    try {
+        const { projectCode, projectName, billable } = req.body;
+        
+        if (!projectCode || !projectName) {
+            return res.status(400).json({ error: 'Project code and name are required' });
+        }
+        
+        const pool = await getConnection();
+        
+        // Check if project code already exists
+        const existingProject = await pool.request()
+            .input('projectCode', sql.NVarChar(20), projectCode)
+            .query('SELECT ProjectID FROM Projects WHERE ProjectCode = @projectCode');
+            
+        if (existingProject.recordset.length > 0) {
+            return res.status(400).json({ error: 'Project with this code already exists' });
+        }
+        
+        // Add new project
+        await pool.request()
+            .input('projectCode', sql.NVarChar(20), projectCode)
+            .input('projectName', sql.NVarChar(200), projectName)
+            .input('billable', sql.Bit, billable !== undefined ? billable : true)
+            .query(`INSERT INTO Projects (ProjectCode, ProjectName, Billable, Active) 
+                    VALUES (@projectCode, @projectName, @billable, 1)`);
+        
+        res.json({ success: true, message: 'Project added successfully' });
+    } catch (err) {
+        console.error('Error adding project:', err);
+        res.status(500).json({ error: 'Failed to add project' });
+    }
+});
+
+// Update project
+app.put('/api/projects/:projectId', async (req, res) => {
+    try {
+        const { projectId } = req.params;
+        const { projectCode, projectName, billable } = req.body;
+        const pool = await getConnection();
+        
+        // Build dynamic update query
+        let updateFields = [];
+        let inputs = [];
+        
+        if (projectCode !== undefined) {
+            updateFields.push('ProjectCode = @projectCode');
+            inputs.push({ name: 'projectCode', type: sql.NVarChar(20), value: projectCode });
+        }
+        
+        if (projectName !== undefined) {
+            updateFields.push('ProjectName = @projectName');
+            inputs.push({ name: 'projectName', type: sql.NVarChar(200), value: projectName });
+        }
+        
+        if (billable !== undefined) {
+            updateFields.push('Billable = @billable');
+            inputs.push({ name: 'billable', type: sql.Bit, value: billable });
+        }
+        
+        if (updateFields.length === 0) {
+            return res.status(400).json({ error: 'No fields to update' });
+        }
+        
+        const request = pool.request();
+        request.input('projectId', sql.Int, projectId);
+        
+        inputs.forEach(input => {
+            request.input(input.name, input.type, input.value);
+        });
+        
+        await request.query(`UPDATE Projects 
+                            SET ${updateFields.join(', ')} 
+                            WHERE ProjectID = @projectId`);
+        
+        res.json({ success: true, message: 'Project updated successfully' });
+    } catch (err) {
+        console.error('Error updating project:', err);
+        res.status(500).json({ error: 'Failed to update project' });
     }
 });
 
