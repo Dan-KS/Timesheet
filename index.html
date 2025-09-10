@@ -115,46 +115,15 @@
                     const data = await apiCall(`/timesheet/${selectedMember.MemberID}/${weekStart}`);
                     
                     const entries = {};
-                    const debugEntries = [];
-                    
                     data.forEach(entry => {
                         const date = new Date(entry.EntryDate);
                         const dayIndex = (date.getDay() + 6) % 7;
                         const key = `${entry.ProjectID}-${dayIndex}`;
-                        
-                        // Store for debugging
-                        debugEntries.push({
-                            projectName: entry.ProjectName,
-                            projectId: entry.ProjectID,
-                            entryDate: entry.EntryDate,
-                            dayOfWeek: date.getDay(),
-                            dayIndex: dayIndex,
-                            dayName: weekDays[dayIndex],
-                            hours: entry.Hours,
-                            key: key
-                        });
-                        
                         entries[key] = {
                             hours: entry.Hours || '',
                             task: entry.TaskDescription || ''
                         };
                     });
-                    
-                    // Show debug info for Admin entries specifically
-                    const adminEntries = debugEntries.filter(e => 
-                        e.projectName && e.projectName.toLowerCase().includes('admin')
-                    );
-                    
-                    if (adminEntries.length > 0) {
-                        console.log('=== ADMIN TASKS DEBUG ===');
-                        console.log('Week start:', weekStart);
-                        adminEntries.forEach(entry => {
-                            console.log(`${entry.dayName} (${entry.entryDate}): ${entry.hours}h`);
-                            console.log(`  - Key: ${entry.key}`);
-                            console.log(`  - Will display: ${entries[entry.key]?.hours || 'MISSING'}`);
-                        });
-                        console.log('=========================');
-                    }
                     
                     setTimeEntries(entries);
                     setHasUnsavedChanges(false);
@@ -171,10 +140,8 @@
                 setSaving(true);
                 let successCount = 0;
                 let errorCount = 0;
-                const debugInfo = [];
 
                 try {
-                    // Save all current entries
                     for (const [key, entry] of Object.entries(timeEntries)) {
                         if (entry.hours || entry.task) {
                             const [projectId, dayIndex] = key.split('-').map(Number);
@@ -182,42 +149,21 @@
                             const entryDate = new Date(currentWeek);
                             entryDate.setDate(currentWeek.getDate() + dayIndex);
 
-                            const project = projects.find(p => p.id === projectId);
-                            const dayName = weekDays[dayIndex];
-
-                            const saveData = {
-                                memberId: selectedMember.MemberID,
-                                projectId: projectId,
-                                entryDate: formatDate(entryDate),
-                                weekStarting: formatDate(currentWeek),
-                                hours: entry.hours || null,
-                                taskDescription: entry.task || null
-                            };
-
-                            debugInfo.push({
-                                key,
-                                projectName: project?.name || 'Unknown',
-                                dayName,
-                                dayIndex,
-                                hours: entry.hours,
-                                task: entry.task,
-                                saveData
-                            });
-
                             try {
                                 await apiCall('/timesheet', {
                                     method: 'POST',
-                                    body: JSON.stringify(saveData)
+                                    body: JSON.stringify({
+                                        memberId: selectedMember.MemberID,
+                                        projectId: projectId,
+                                        entryDate: formatDate(entryDate),
+                                        weekStarting: formatDate(currentWeek),
+                                        hours: entry.hours || null,
+                                        taskDescription: entry.task || null
+                                    })
                                 });
                                 successCount++;
                             } catch (error) {
-                                console.error('Failed to save entry:', {
-                                    key,
-                                    projectName: project?.name,
-                                    dayName,
-                                    error: error.message,
-                                    saveData
-                                });
+                                console.error('Failed to save entry:', error);
                                 errorCount++;
                             }
                         }
@@ -228,12 +174,10 @@
                         setError(null);
                         alert(`Successfully saved ${successCount} entries!`);
                     } else {
-                        console.log('Debug Info for all save attempts:', debugInfo);
-                        setError(`Saved ${successCount} entries, but ${errorCount} failed. Check browser console for details.`);
+                        setError(`Saved ${successCount} entries, but ${errorCount} failed. Please try again.`);
                     }
                 } catch (error) {
-                    console.log('Debug Info for all save attempts:', debugInfo);
-                    setError('Failed to save timesheet. Check browser console for details.');
+                    setError('Failed to save timesheet. Please try again.');
                 } finally {
                     setSaving(false);
                 }
@@ -294,7 +238,6 @@
                             const dayIndex = (date.getDay() + 6) % 7;
                             const key = `${entry.ProjectID}-${dayIndex}`;
                             
-                            // Only copy if current week doesn't have data
                             if (!newEntries[key] || (!newEntries[key].hours && !newEntries[key].task)) {
                                 newEntries[key] = {
                                     ...newEntries[key],
@@ -352,15 +295,6 @@
                     URL.revokeObjectURL(url);
                 } catch (error) {
                     alert('Failed to export data. Please try again.');
-                }
-            };
-
-            const refreshData = async () => {
-                setLoading(true);
-                try {
-                    await Promise.all([loadMembers(), loadProjects()]);
-                } finally {
-                    setLoading(false);
                 }
             };
 
@@ -524,20 +458,152 @@
                         </div>
                     </div>
 
-                    {showProjectManager && (
-                        <div className="mb-6 p-4 bg-gray-50 rounded-lg border">
-                            <h2 className="text-xl font-semibold mb-4">Current Projects</h2>
+                    {showTeamManager && (
+                        <div className="mb-6 p-4 bg-indigo-50 rounded-lg border">
+                            <div className="flex items-center justify-between mb-4">
+                                <h2 className="text-xl font-semibold">Team Management</h2>
+                                <button
+                                    onClick={addMember}
+                                    className="flex items-center gap-2 px-3 py-1 bg-indigo-600 text-white rounded hover:bg-indigo-700"
+                                >
+                                    <Plus size={16} />
+                                    Add Team Member
+                                </button>
+                            </div>
+                            
                             <div className="space-y-2">
-                                {projects.map(project => (
-                                    <div key={project.id} className="flex items-center gap-3 p-3 bg-white rounded border">
-                                        <span className="flex-1 font-medium">{project.name}</span>
-                                        <span className="w-20 text-sm text-gray-600">{project.code}</span>
-                                        <span className={`inline-block w-3 h-3 rounded-full ${project.billable ? 'bg-green-500' : 'bg-gray-400'}`}></span>
-                                        <span className="text-sm">{project.billable ? 'Billable' : 'Non-billable'}</span>
+                                {members.map(member => (
+                                    <div key={member.MemberID} className="flex items-center gap-3 p-3 bg-white rounded border">
+                                        {editingMember === member.MemberID ? (
+                                            <>
+                                                <input
+                                                    type="text"
+                                                    defaultValue={member.Name}
+                                                    className="flex-1 px-2 py-1 border border-gray-300 rounded"
+                                                    placeholder="Name"
+                                                    onBlur={(e) => {
+                                                        if (e.target.value !== member.Name) {
+                                                            updateMember(member.MemberID, 'name', e.target.value);
+                                                        } else {
+                                                            setEditingMember(null);
+                                                        }
+                                                    }}
+                                                    onKeyPress={(e) => {
+                                                        if (e.key === 'Enter') {
+                                                            updateMember(member.MemberID, 'name', e.target.value);
+                                                        }
+                                                    }}
+                                                    autoFocus
+                                                />
+                                                <button
+                                                    onClick={() => setEditingMember(null)}
+                                                    className="p-1 text-gray-600 hover:bg-gray-100 rounded"
+                                                >
+                                                    <X />
+                                                </button>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <span className="flex-1 font-medium">{member.Name}</span>
+                                                <button
+                                                    onClick={() => setEditingMember(member.MemberID)}
+                                                    className="p-1 text-blue-600 hover:bg-blue-100 rounded"
+                                                >
+                                                    <Edit />
+                                                </button>
+                                            </>
+                                        )}
                                     </div>
                                 ))}
                             </div>
-                            <p className="text-sm text-gray-600 mt-2">Contact your administrator to add or modify projects.</p>
+                        </div>
+                    )}
+
+                    {showProjectManager && (
+                        <div className="mb-6 p-4 bg-gray-50 rounded-lg border">
+                            <div className="flex items-center justify-between mb-4">
+                                <h2 className="text-xl font-semibold">Project Management</h2>
+                                <button
+                                    onClick={addProject}
+                                    className="flex items-center gap-2 px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700"
+                                >
+                                    <Plus size={16} />
+                                    Add Project
+                                </button>
+                            </div>
+                            
+                            <div className="space-y-2">
+                                {projects.map(project => (
+                                    <div key={project.id} className="flex items-center gap-3 p-3 bg-white rounded border">
+                                        {editingProject === project.id ? (
+                                            <>
+                                                <input
+                                                    type="text"
+                                                    defaultValue={project.name}
+                                                    className="flex-1 px-2 py-1 border border-gray-300 rounded"
+                                                    placeholder="Project Name"
+                                                    onBlur={(e) => {
+                                                        if (e.target.value !== project.name) {
+                                                            updateProject(project.id, 'name', e.target.value);
+                                                        } else {
+                                                            setEditingProject(null);
+                                                        }
+                                                    }}
+                                                    onKeyPress={(e) => {
+                                                        if (e.key === 'Enter') {
+                                                            updateProject(project.id, 'name', e.target.value);
+                                                        }
+                                                    }}
+                                                    autoFocus
+                                                />
+                                                <input
+                                                    type="text"
+                                                    defaultValue={project.code}
+                                                    className="w-24 px-2 py-1 border border-gray-300 rounded"
+                                                    placeholder="Code"
+                                                    onBlur={(e) => {
+                                                        if (e.target.value !== project.code) {
+                                                            updateProject(project.id, 'code', e.target.value);
+                                                        }
+                                                    }}
+                                                    onKeyPress={(e) => {
+                                                        if (e.key === 'Enter') {
+                                                            updateProject(project.id, 'code', e.target.value);
+                                                        }
+                                                    }}
+                                                />
+                                                <label className="flex items-center gap-1">
+                                                    <input
+                                                        type="checkbox"
+                                                        defaultChecked={project.billable}
+                                                        onChange={(e) => updateProject(project.id, 'billable', e.target.checked)}
+                                                    />
+                                                    Billable
+                                                </label>
+                                                <button
+                                                    onClick={() => setEditingProject(null)}
+                                                    className="p-1 text-gray-600 hover:bg-gray-100 rounded"
+                                                >
+                                                    <X />
+                                                </button>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <span className="flex-1 font-medium">{project.name}</span>
+                                                <span className="w-20 text-sm text-gray-600">{project.code}</span>
+                                                <span className={`inline-block w-3 h-3 rounded-full ${project.billable ? 'bg-green-500' : 'bg-gray-400'}`}></span>
+                                                <span className="text-sm">{project.billable ? 'Billable' : 'Non-billable'}</span>
+                                                <button
+                                                    onClick={() => setEditingProject(project.id)}
+                                                    className="p-1 text-blue-600 hover:bg-blue-100 rounded"
+                                                >
+                                                    <Edit />
+                                                </button>
+                                            </>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
                         </div>
                     )}
 
