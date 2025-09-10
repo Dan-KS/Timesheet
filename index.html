@@ -16,7 +16,7 @@
         // Your live API URL - connected to Azure SQL Database
         const API_BASE_URL = 'https://timesheet-api-dpcxh5gca6bthgeb.uksouth-01.azurewebsites.net/api';
 
-        // Simple Lucide icon components
+        // Icon components
         const Plus = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 5v14m7-7H5" /></svg>;
         const Settings = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><circle cx={12} cy={12} r={3} /></svg>;
         const Download = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4m7-10l4 4m0 0l4-4m-4 4V3" /></svg>;
@@ -26,21 +26,24 @@
         const ChevronLeft = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>;
         const ChevronRight = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>;
         const Edit = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>;
-        const Check = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>;
         const X = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>;
         const UserPlus = () => <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" /></svg>;
 
         const TimesheetSystem = () => {
+            // All state variables in one place
             const [currentWeek, setCurrentWeek] = React.useState(getWeekStart(new Date()));
             const [projects, setProjects] = React.useState([]);
             const [members, setMembers] = React.useState([]);
             const [selectedMember, setSelectedMember] = React.useState(null);
             const [timeEntries, setTimeEntries] = React.useState({});
-            const [showProjectManager, setShowProjectManager] = React.useState(false);
             const [loading, setLoading] = React.useState(true);
             const [saving, setSaving] = React.useState(false);
             const [hasUnsavedChanges, setHasUnsavedChanges] = React.useState(false);
             const [error, setError] = React.useState(null);
+            const [showProjectManager, setShowProjectManager] = React.useState(false);
+            const [showTeamManager, setShowTeamManager] = React.useState(false);
+            const [editingProject, setEditingProject] = React.useState(null);
+            const [editingMember, setEditingMember] = React.useState(null);
 
             const weekDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
@@ -48,7 +51,9 @@
                 const d = new Date(date);
                 const day = d.getDay();
                 const diff = d.getDate() - day + (day === 0 ? -6 : 1);
-                return new Date(d.setDate(diff));
+                const weekStart = new Date(d.setDate(diff));
+                weekStart.setHours(0, 0, 0, 0);
+                return weekStart;
             }
 
             function formatDate(date) {
@@ -63,7 +68,19 @@
                 });
             }
 
-            // API calls with error handling
+            const getNextWeek = () => {
+                const nextWeek = new Date(currentWeek);
+                nextWeek.setDate(currentWeek.getDate() + 7);
+                return getWeekStart(nextWeek);
+            };
+
+            const getPreviousWeek = () => {
+                const prevWeek = new Date(currentWeek);
+                prevWeek.setDate(currentWeek.getDate() - 7);
+                return getWeekStart(prevWeek);
+            };
+
+            // API calls
             const apiCall = async (endpoint, options = {}) => {
                 try {
                     setError(null);
@@ -304,7 +321,80 @@
                 }
             };
 
-            // Handle unsaved changes warning when switching member/week
+            // Team and project management functions
+            const addMember = async () => {
+                const name = prompt('Enter team member name:');
+                const email = prompt('Enter email address:');
+                
+                if (!name || !email) return;
+
+                try {
+                    await apiCall('/members', {
+                        method: 'POST',
+                        body: JSON.stringify({ name, email })
+                    });
+                    await loadMembers();
+                    alert('Team member added successfully!');
+                } catch (error) {
+                    alert('Failed to add team member. Please try again.');
+                }
+            };
+
+            const updateMember = async (id, field, value) => {
+                try {
+                    await apiCall(`/members/${id}`, {
+                        method: 'PUT',
+                        body: JSON.stringify({ [field]: value })
+                    });
+                    await loadMembers();
+                    setEditingMember(null);
+                } catch (error) {
+                    alert('Failed to update team member. Please try again.');
+                }
+            };
+
+            const addProject = async () => {
+                const newProject = {
+                    projectCode: `PRJ${String(Math.max(...projects.map(p => p.id), 0) + 1).padStart(3, '0')}`,
+                    projectName: 'New Project',
+                    billable: true
+                };
+
+                try {
+                    await apiCall('/projects', {
+                        method: 'POST',
+                        body: JSON.stringify(newProject)
+                    });
+                    await loadProjects();
+                    alert('Project added successfully!');
+                } catch (error) {
+                    alert('Failed to add project. Please try again.');
+                }
+            };
+
+            const updateProject = async (id, field, value) => {
+                const project = projects.find(p => p.id === id);
+                if (!project) return;
+
+                const updatedProject = {
+                    projectCode: field === 'code' ? value : project.code,
+                    projectName: field === 'name' ? value : project.name,
+                    billable: field === 'billable' ? value : project.billable
+                };
+
+                try {
+                    await apiCall(`/projects/${id}`, {
+                        method: 'PUT',
+                        body: JSON.stringify(updatedProject)
+                    });
+                    await loadProjects();
+                    setEditingProject(null);
+                } catch (error) {
+                    alert('Failed to update project. Please try again.');
+                }
+            };
+
+            // Navigation handlers
             const handleMemberChange = (newMemberId) => {
                 if (hasUnsavedChanges) {
                     const confirmSwitch = window.confirm(
@@ -324,7 +414,29 @@
                     );
                     if (!confirmSwitch) return;
                 }
-                setCurrentWeek(new Date(newDate));
+                setCurrentWeek(getWeekStart(new Date(newDate)));
+                setHasUnsavedChanges(false);
+            };
+
+            const handleNextWeek = () => {
+                if (hasUnsavedChanges) {
+                    const confirmSwitch = window.confirm(
+                        'You have unsaved changes. Do you want to continue without saving?'
+                    );
+                    if (!confirmSwitch) return;
+                }
+                setCurrentWeek(getNextWeek());
+                setHasUnsavedChanges(false);
+            };
+
+            const handlePreviousWeek = () => {
+                if (hasUnsavedChanges) {
+                    const confirmSwitch = window.confirm(
+                        'You have unsaved changes. Do you want to continue without saving?'
+                    );
+                    if (!confirmSwitch) return;
+                }
+                setCurrentWeek(getPreviousWeek());
                 setHasUnsavedChanges(false);
             };
 
@@ -408,6 +520,13 @@
                                     {saving ? 'Saving...' : 'Save Timesheet'}
                                 </button>
                                 <button
+                                    onClick={() => setShowTeamManager(!showTeamManager)}
+                                    className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700"
+                                >
+                                    <UserPlus />
+                                    Team
+                                </button>
+                                <button
                                     onClick={() => setShowProjectManager(!showProjectManager)}
                                     className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
                                 >
@@ -438,14 +557,30 @@
                                 </select>
                             </div>
                             
-                            <div>
+                            <div className="flex items-center gap-1">
                                 <label className="block text-sm font-medium text-gray-700 mb-1">Week Starting</label>
-                                <input
-                                    type="date"
-                                    value={formatDate(currentWeek)}
-                                    onChange={(e) => handleWeekChange(e.target.value)}
-                                    className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                />
+                                <div className="flex items-center gap-1">
+                                    <button
+                                        onClick={handlePreviousWeek}
+                                        className="p-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded"
+                                        title="Previous week"
+                                    >
+                                        <ChevronLeft />
+                                    </button>
+                                    <input
+                                        type="date"
+                                        value={formatDate(currentWeek)}
+                                        onChange={(e) => handleWeekChange(e.target.value)}
+                                        className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    />
+                                    <button
+                                        onClick={handleNextWeek}
+                                        className="p-2 text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded"
+                                        title="Next week"
+                                    >
+                                        <ChevronRight />
+                                    </button>
+                                </div>
                             </div>
 
                             {hasUnsavedChanges && (
@@ -472,7 +607,7 @@
                                     onClick={addMember}
                                     className="flex items-center gap-2 px-3 py-1 bg-indigo-600 text-white rounded hover:bg-indigo-700"
                                 >
-                                    <Plus size={16} />
+                                    <Plus />
                                     Add Team Member
                                 </button>
                             </div>
@@ -533,7 +668,7 @@
                                     onClick={addProject}
                                     className="flex items-center gap-2 px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700"
                                 >
-                                    <Plus size={16} />
+                                    <Plus />
                                     Add Project
                                 </button>
                             </div>
